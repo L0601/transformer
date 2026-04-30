@@ -8,21 +8,26 @@ EOS = "<eos>"
 TOKENS = [PAD, BOS, EOS, "+", "="] + list("0123456789")
 TOKEN_TO_ID = {token: idx for idx, token in enumerate(TOKENS)}
 ID_TO_TOKEN = {idx: token for token, idx in TOKEN_TO_ID.items()}
+DEFAULT_TOTAL = 50000
+TRAIN_RATIO = 0.8
+MAX_NUMBER = 9999
+NUMBER_WIDTH = 4
+ANSWER_WIDTH = 4
 
 
 def make_addition(a: int, b: int) -> str:
-    return f"{a}+{b}={a + b}"
+    return f"{a:0{NUMBER_WIDTH}d}+{b:0{NUMBER_WIDTH}d}={a + b:0{ANSWER_WIDTH}d}"
 
 
-def generate_data(path: str, total: int = 10000, seed: int = 42) -> None:
+def generate_data(path: str, total: int = DEFAULT_TOTAL, seed: int = 42) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     random.seed(seed)
     rows = []
     seen = set()
     while len(rows) < total:
-        a = random.randint(0, 9999)
-        b = random.randint(0, 9999 - a)
+        a = random.randint(0, MAX_NUMBER)
+        b = random.randint(0, MAX_NUMBER - a)
         row = make_addition(a, b)
         if row not in seen:
             seen.add(row)
@@ -30,8 +35,9 @@ def generate_data(path: str, total: int = 10000, seed: int = 42) -> None:
     target.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
-def ensure_data(path: str, total: int = 10000) -> None:
-    if not Path(path).exists():
+def ensure_data(path: str, total: int = DEFAULT_TOTAL) -> None:
+    data_path = Path(path)
+    if not data_path.exists() or len(read_rows(path)) != total:
         generate_data(path, total=total)
 
 
@@ -42,6 +48,11 @@ def read_rows(path: str) -> list[str]:
 def split_row(row: str) -> tuple[str, str]:
     expr, answer = row.split("=")
     return expr + "=", answer
+
+
+def split_train_test(rows: list[str]) -> tuple[list[str], list[str]]:
+    train_size = int(len(rows) * TRAIN_RATIO)
+    return rows[:train_size], rows[train_size:]
 
 
 def encode_text(text: str) -> list[int]:
@@ -59,6 +70,14 @@ def decode_ids(ids: list[int]) -> str:
     return "".join(chars)
 
 
+def encode_answer(answer: str) -> list[int]:
+    return encode_text(answer[::-1])
+
+
+def decode_answer(ids: list[int]) -> str:
+    return decode_ids(ids)[::-1]
+
+
 class AdditionDataset:
     def __init__(self, rows: list[str]):
         self.samples = [split_row(row) for row in rows]
@@ -71,8 +90,9 @@ class AdditionDataset:
 
         expr, answer = self.samples[idx]
         src = encode_text(expr)
-        tgt_in = [TOKEN_TO_ID[BOS]] + encode_text(answer)
-        tgt_out = encode_text(answer) + [TOKEN_TO_ID[EOS]]
+        answer_ids = encode_answer(answer)
+        tgt_in = [TOKEN_TO_ID[BOS]] + answer_ids
+        tgt_out = answer_ids + [TOKEN_TO_ID[EOS]]
         return {
             "src": torch.tensor(src, dtype=torch.long),
             "tgt_in": torch.tensor(tgt_in, dtype=torch.long),

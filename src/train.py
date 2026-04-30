@@ -5,7 +5,16 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from data import AdditionDataset, PAD, TOKEN_TO_ID, ensure_data, pad_batch, read_rows
+from data import (
+    AdditionDataset,
+    DEFAULT_TOTAL,
+    PAD,
+    TOKEN_TO_ID,
+    ensure_data,
+    pad_batch,
+    read_rows,
+    split_train_test,
+)
 from model import AdditionTransformer
 
 
@@ -60,18 +69,19 @@ def load_checkpoint_if_exists(model, path: str, device: torch.device) -> bool:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="训练 Transformer 加法模型")
     parser.add_argument("--data", default="data/additions.txt")
-    parser.add_argument("--model", default="checkpoints/addition_transformer.pt")
-    parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--model", default="checkpoints/addition_transformer_v2.pt")
+    parser.add_argument("--total", type=int, default=DEFAULT_TOTAL)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=2e-3)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    ensure_data(args.data)
+    ensure_data(args.data, total=args.total)
     rows = read_rows(args.data)
-    train_rows = rows[:6000]
+    train_rows, _ = split_train_test(rows)
     device = get_device()
     loader = build_loader(train_rows, args.batch_size, shuffle=True)
     model = AdditionTransformer(len(TOKEN_TO_ID), TOKEN_TO_ID[PAD]).to(device)
