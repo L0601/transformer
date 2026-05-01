@@ -26,27 +26,38 @@ def get_device() -> torch.device:
     return torch.device("cpu")
 
 
-def build_loader(rows: list[str], batch_size: int, shuffle: bool) -> DataLoader:
+def build_loader(
+    rows: list[str],
+    batch_size: int,
+    shuffle: bool,
+    pin_memory: bool,
+    num_workers: int,
+) -> DataLoader:
     return DataLoader(
         AdditionDataset(rows),
         batch_size=batch_size,
         shuffle=shuffle,
         collate_fn=pad_batch,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0,
     )
 
 
-def train_epoch(model, loader, optimizer, criterion, device) -> float:
+def train_epoch(model, loader, optimizer, criterion, device, scaler, use_amp) -> float:
     model.train()
     total_loss = 0.0
     for batch in loader:
-        src = batch["src"].to(device)
-        tgt_in = batch["tgt_in"].to(device)
-        tgt_out = batch["tgt_out"].to(device)
-        optimizer.zero_grad()
-        logits = model(src, tgt_in)
-        loss = criterion(logits.reshape(-1, logits.size(-1)), tgt_out.reshape(-1))
-        loss.backward()
-        optimizer.step()
+        src = batch["src"].to(device, non_blocking=True)
+        tgt_in = batch["tgt_in"].to(device, non_blocking=True)
+        tgt_out = batch["tgt_out"].to(device, non_blocking=True)
+        optimizer.zero_grad(set_to_none=True)
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            logits = model(src, tgt_in)
+            loss = criterion(logits.reshape(-1, logits.size(-1)), tgt_out.reshape(-1))
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
         total_loss += float(loss.item())
     return total_loss / len(loader)
 
@@ -74,6 +85,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=2e-3)
+    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--no-amp", action="store_true")
     return parser.parse_args()
 
 
@@ -83,20 +96,33 @@ def main() -> None:
     rows = read_rows(args.data)
     train_rows, _ = split_train_test(rows)
     device = get_device()
-    loader = build_loader(train_rows, args.batch_size, shuffle=True)
+    if device.type == "cuda":
+        torch.backends.cuda.matmul.fp32_precision = "tf32"
+    use_amp = device.type == "cuda" and not args.no_amp
+    loader = build_loader(
+        train_rows,
+        args.batch_size,
+        shuffle=True,
+        pin_memory=device.type == "cuda",
+        num_workers=args.num_workers,
+    )
     model = AdditionTransformer(len(TOKEN_TO_ID), TOKEN_TO_ID[PAD]).to(device)
     loaded = load_checkpoint_if_exists(model, args.model, device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss(ignore_index=TOKEN_TO_ID[PAD])
+    scaler_device = "cuda" if device.type == "cuda" else "cpu"
+    scaler = torch.amp.GradScaler(scaler_device, enabled=use_amp)
 
     print(f"使用设备: {device}")
     print(f"训练样本: {len(train_rows)}")
+    print(f"AMP: {use_amp}")
+    print(f"batch_size: {args.batch_size}")
     if loaded:
         print(f"已加载已有模型参数: {args.model}")
     else:
         print("未找到已有模型，从头训练")
     for epoch in range(1, args.epochs + 1):
-        loss = train_epoch(model, loader, optimizer, criterion, device)
+        loss = train_epoch(model, loader, optimizer, criterion, device, scaler, use_amp)
         print(f"epoch={epoch:03d}, loss={loss:.4f}")
     save_checkpoint(model, args.model)
     print(f"模型已保存: {args.model}")
