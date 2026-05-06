@@ -43,6 +43,12 @@ class AdditionTransformer(nn.Module):
             dropout=dropout,
             batch_first=True,
         )
+        # MPS 暂不支持 encoder fast path 用到的 _nested_tensor_from_mask_left_aligned，
+        # 关闭 nested tensor 与 mask 检查以保持 CUDA/MPS/CPU 行为一致
+        # （不同 PyTorch 版本属性名不同，两个都设以兼容）
+        self.transformer.encoder.enable_nested_tensor = False
+        self.transformer.encoder.use_nested_tensor = False
+        self.transformer.encoder.mask_check = False
         self.output = nn.Linear(d_model, vocab_size)
         self.scale = math.sqrt(d_model)
 
