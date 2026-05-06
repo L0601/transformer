@@ -22,6 +22,7 @@ def get_device() -> torch.device:
     if torch.backends.mps.is_available():
         return torch.device("mps")
     if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
         return torch.device("cuda")
     return torch.device("cpu")
 
@@ -82,10 +83,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data", default="data/additions_v3.txt")
     parser.add_argument("--model", default="checkpoints/addition_transformer_v4.pt")
     parser.add_argument("--total", type=int, default=DEFAULT_TOTAL)
-    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=2048)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--no-amp", action="store_true")
     return parser.parse_args()
 
@@ -109,6 +110,9 @@ def main() -> None:
     model = AdditionTransformer(len(TOKEN_TO_ID), TOKEN_TO_ID[PAD]).to(device)
     loaded = load_checkpoint_if_exists(model, args.model, device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=5,
+    )
     criterion = nn.CrossEntropyLoss(ignore_index=TOKEN_TO_ID[PAD])
     scaler_device = "cuda" if device.type == "cuda" else "cpu"
     scaler = torch.amp.GradScaler(scaler_device, enabled=use_amp)
@@ -123,7 +127,9 @@ def main() -> None:
         print("未找到已有模型，从头训练")
     for epoch in range(1, args.epochs + 1):
         loss = train_epoch(model, loader, optimizer, criterion, device, scaler, use_amp)
-        print(f"epoch={epoch:03d}, loss={loss:.4f}")
+        scheduler.step(loss)
+        lr = optimizer.param_groups[0]["lr"]
+        print(f"epoch={epoch:03d}, loss={loss:.4f}, lr={lr:.6f}")
     save_checkpoint(model, args.model)
     print(f"模型已保存: {args.model}")
 

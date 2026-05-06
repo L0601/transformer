@@ -25,9 +25,9 @@ class AdditionTransformer(nn.Module):
         self,
         vocab_size: int,
         pad_id: int,
-        d_model: int = 128,
-        nhead: int = 4,
-        layers: int = 2,
+        d_model: int = 256,
+        nhead: int = 8,
+        layers: int = 4,
         dropout: float = 0.1,
     ):
         super().__init__()
