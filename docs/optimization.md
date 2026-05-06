@@ -93,3 +93,35 @@
 **模型/超参未动**：架构、PE、层数、`d_model`、lr、epochs 全部保持 v2 设置。
 
 **下一步**：训练 v3，对比同分布准确率与变长泛化测试结果，记录到本文件。
+
+### 2026-05-06：方向 4 启动（反转输入位序）
+
+**动机**：v3 训练后变长加法基本可用，但超过 4 位（训练范围）准确率崩盘。
+原因之一是 encoder 用绝对位置编码，"个位在第几个 token"完全依赖输入长度。
+
+**澄清易混点**：v2 起 `encode_answer` 已经反转**答案**（让 decoder 从个位开始生成）。
+本次方向 4 是给**输入端**也反转，目的不同——是让 encoder 看到的"个位位置"
+不再随输入长度变化。两个反转互相独立、各管一头。
+
+**思路**：把 encoder 输入端的两个加数各自反转，让"个位"永远靠左：
+
+```
+人读视角：123+45=
+模型视角：321+54=
+答案视角：861（已反转，沿用 v2 起就有的设计）
+```
+
+这样 encoder 位置 0 永远是 a 的个位，"+" 后位置 0 永远是 b 的个位，
+完全对齐竖式加法的逐位计算节奏。
+
+**改动文件**：`src/data.py`、`src/evaluate.py`、`src/train.py`
+
+- 新增 `encode_expr`：在 encode 阶段反转两个加数
+- `AdditionDataset.__getitem__` 改用 `encode_expr` 编码 src
+- `evaluate.py` 的 `predict` / `predict_batch` 同步用 `encode_expr`
+- 数据文件 `additions_v3.txt` 不动，仅 encode 时反转
+- 默认 checkpoint 切到 `addition_transformer_v4.pt`
+
+**未改动**：模型结构、超参、数据生成、答案 encode/decode（本来就是反转的）。
+
+**下一步**：训练 v4，对比 v3，特别看变长 OOD 测试中"输入超训练范围"那一类是否有改善。

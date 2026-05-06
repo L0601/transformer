@@ -108,6 +108,14 @@ def decode_answer(ids: list[int]) -> str:
     return decode_ids(ids)[::-1]
 
 
+def encode_expr(expr: str) -> list[int]:
+    # v4：把两个加数各自反转，让个位永远靠左、和竖式加法的算法位置对齐
+    # 输入示例：'123+45='  →  编码内容：'321+54='
+    body = expr.rstrip("=")
+    a_str, b_str = body.split("+")
+    return encode_text(f"{a_str[::-1]}+{b_str[::-1]}=")
+
+
 class AdditionDataset:
     def __init__(self, rows: list[str]):
         self.samples = [split_row(row) for row in rows]
@@ -119,7 +127,7 @@ class AdditionDataset:
         import torch
 
         expr, answer = self.samples[idx]
-        src = encode_text(expr)
+        src = encode_expr(expr)
         answer_ids = encode_answer(answer)
         tgt_in = [TOKEN_TO_ID[BOS]] + answer_ids
         tgt_out = answer_ids + [TOKEN_TO_ID[EOS]]

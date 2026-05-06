@@ -80,7 +80,7 @@ def load_checkpoint_if_exists(model, path: str, device: torch.device) -> bool:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="训练 Transformer 加法模型")
     parser.add_argument("--data", default="data/additions_v3.txt")
-    parser.add_argument("--model", default="checkpoints/addition_transformer_v3.pt")
+    parser.add_argument("--model", default="checkpoints/addition_transformer_v4.pt")
     parser.add_argument("--total", type=int, default=DEFAULT_TOTAL)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=2048)

@@ -11,7 +11,7 @@ from data import (
     TOKEN_TO_ID,
     DEFAULT_TOTAL,
     decode_answer,
-    encode_text,
+    encode_expr,
     ensure_data,
     make_addition,
     pad_items,
@@ -34,7 +34,7 @@ def load_model(path: str, device: torch.device) -> AdditionTransformer:
 
 @torch.inference_mode()
 def predict(model, expr: str, device: torch.device, max_len: int = 7) -> str:
-    src = torch.tensor([encode_text(expr)], dtype=torch.long, device=device)
+    src = torch.tensor([encode_expr(expr)], dtype=torch.long, device=device)
     ids = [TOKEN_TO_ID[BOS]]
     for _ in range(max_len):
         tgt = torch.tensor([ids], dtype=torch.long, device=device)
@@ -56,7 +56,7 @@ def predict_batch(
         return []
 
     samples = [
-        {"src": torch.tensor(encode_text(expr), dtype=torch.long)}
+        {"src": torch.tensor(encode_expr(expr), dtype=torch.long)}
         for expr in exprs
     ]
     src = pad_items(samples, "src").to(device)
@@ -157,7 +157,7 @@ def show_generalization(model, device: torch.device, count: int) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="评估 Transformer 加法模型")
     parser.add_argument("--data", default="data/additions_v3.txt")
-    parser.add_argument("--model", default="checkpoints/addition_transformer_v3.pt")
+    parser.add_argument("--model", default="checkpoints/addition_transformer_v4.pt")
     parser.add_argument("--total", type=int, default=DEFAULT_TOTAL)
     parser.add_argument("--limit", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=512)
