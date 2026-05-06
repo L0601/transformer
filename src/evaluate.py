@@ -6,6 +6,7 @@ import torch
 from data import (
     BOS,
     EOS,
+    MAX_DIGITS,
     PAD,
     TOKEN_TO_ID,
     DEFAULT_TOTAL,
@@ -15,6 +16,7 @@ from data import (
     make_addition,
     pad_items,
     read_rows,
+    sample_in_digit,
     split_row,
     split_train_test,
 )
@@ -31,7 +33,7 @@ def load_model(path: str, device: torch.device) -> AdditionTransformer:
 
 
 @torch.inference_mode()
-def predict(model, expr: str, device: torch.device, max_len: int = 5) -> str:
+def predict(model, expr: str, device: torch.device, max_len: int = 7) -> str:
     src = torch.tensor([encode_text(expr)], dtype=torch.long, device=device)
     ids = [TOKEN_TO_ID[BOS]]
     for _ in range(max_len):
@@ -48,7 +50,7 @@ def predict_batch(
     model,
     exprs: list[str],
     device: torch.device,
-    max_len: int = 5,
+    max_len: int = 7,
 ) -> list[str]:
     if not exprs:
         return []
@@ -108,8 +110,12 @@ def evaluate_rows_batch(
 
 
 def random_case() -> tuple[str, str]:
-    a = random.randint(0, 9999)
-    b = random.randint(0, 9999 - a)
+    # 与 v3 训练分布一致：均匀采位数后再采数字
+    rng = random.Random()
+    da = rng.randint(1, MAX_DIGITS)
+    db = rng.randint(1, MAX_DIGITS)
+    a = sample_in_digit(rng, da)
+    b = sample_in_digit(rng, db)
     expr, answer = split_row(make_addition(a, b))
     return expr, answer
 
@@ -150,8 +156,8 @@ def show_generalization(model, device: torch.device, count: int) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="评估 Transformer 加法模型")
-    parser.add_argument("--data", default="data/additions.txt")
-    parser.add_argument("--model", default="checkpoints/addition_transformer_v2.pt")
+    parser.add_argument("--data", default="data/additions_v3.txt")
+    parser.add_argument("--model", default="checkpoints/addition_transformer_v3.pt")
     parser.add_argument("--total", type=int, default=DEFAULT_TOTAL)
     parser.add_argument("--limit", type=int, default=1000)
     parser.add_argument("--batch-size", type=int, default=512)

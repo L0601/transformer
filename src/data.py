@@ -10,34 +10,64 @@ TOKEN_TO_ID = {token: idx for idx, token in enumerate(TOKENS)}
 ID_TO_TOKEN = {idx: token for token, idx in TOKEN_TO_ID.items()}
 DEFAULT_TOTAL = 50000
 TRAIN_RATIO = 0.8
-MAX_NUMBER = 9999
-NUMBER_WIDTH = 4
-ANSWER_WIDTH = 4
+# 单个加数最多多少位；答案最多 MAX_DIGITS+1 位
+MAX_DIGITS = 4
 
 
 def make_addition(a: int, b: int) -> str:
-    return f"{a:0{NUMBER_WIDTH}d}+{b:0{NUMBER_WIDTH}d}={a + b:0{ANSWER_WIDTH}d}"
+    # 不补零，让位数自然变化（v3 数据格式）
+    return f"{a}+{b}={a + b}"
+
+
+def digit_capacity(digits: int) -> int:
+    # 1 位含 0~9 共 10 个；其它位排除前导零
+    if digits == 1:
+        return 10
+    return 9 * 10 ** (digits - 1)
+
+
+def sample_in_digit(rng: random.Random, digits: int) -> int:
+    if digits == 1:
+        return rng.randint(0, 9)
+    return rng.randint(10 ** (digits - 1), 10 ** digits - 1)
+
+
+def fill_bucket(
+    rng: random.Random,
+    da: int,
+    db: int,
+    count: int,
+    seen: set[str],
+) -> None:
+    # 受限于桶容量，最多取 capacity 条不重复样本
+    capacity = digit_capacity(da) * digit_capacity(db)
+    take = min(count, capacity)
+    start = len(seen)
+    while len(seen) - start < take:
+        a = sample_in_digit(rng, da)
+        b = sample_in_digit(rng, db)
+        seen.add(make_addition(a, b))
 
 
 def generate_data(path: str, total: int = DEFAULT_TOTAL, seed: int = 42) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    random.seed(seed)
-    rows = []
-    seen = set()
-    while len(rows) < total:
-        a = random.randint(0, MAX_NUMBER)
-        b = random.randint(0, MAX_NUMBER - a)
-        row = make_addition(a, b)
-        if row not in seen:
-            seen.add(row)
-            rows.append(row)
+    rng = random.Random(seed)
+    # 按 (a 位数, b 位数) 16 个桶均匀采样，让训练分布覆盖所有位数组合
+    per_bucket = total // (MAX_DIGITS * MAX_DIGITS)
+    seen: set[str] = set()
+    for da in range(1, MAX_DIGITS + 1):
+        for db in range(1, MAX_DIGITS + 1):
+            fill_bucket(rng, da, db, per_bucket, seen)
+    rows = list(seen)
+    rng.shuffle(rows)
     target.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
 def ensure_data(path: str, total: int = DEFAULT_TOTAL) -> None:
+    # v3 起每桶受容量限制，实际行数会小于 total，因此只判断文件是否存在
     data_path = Path(path)
-    if not data_path.exists() or len(read_rows(path)) != total:
+    if not data_path.exists():
         generate_data(path, total=total)
 
 
