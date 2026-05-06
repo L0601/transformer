@@ -114,12 +114,38 @@ def random_case() -> tuple[str, str]:
     return expr, answer
 
 
+# 训练分布外的变长样例：训练时全是 4 位补零、左右等宽、答案 ≤ 4 位
+# 这里用来观察模型对不同类型 OOD 输入的退化模式
+VARIED_LENGTH_CASES: list[tuple[str, str, str]] = [
+    ("不补零短数", "1+2=", "3"),
+    ("不补零短数", "12+5=", "17"),
+    ("不补零短数", "100+200=", "300"),
+    ("位数不一致", "1+999=", "1000"),
+    ("位数不一致", "9+1=", "10"),
+    ("位数不一致", "5+1234=", "1239"),
+    ("答案溢出 4 位", "9999+1=", "10000"),
+    ("答案溢出 4 位", "9999+9999=", "19998"),
+    ("输入超训练范围", "12345+1=", "12346"),
+    ("输入超训练范围", "10000+10000=", "20000"),
+]
+
+
 def show_generalization(model, device: torch.device, count: int) -> None:
-    print("随机泛化测试:")
+    print("随机泛化测试（训练同分布）:")
     for _ in range(count):
         expr, answer = random_case()
         pred = predict(model, expr, device)
-        print(f"{expr}{answer}, model={pred}, ok={pred == answer}")
+        print(f"  {expr}{answer}, model={pred}, ok={pred == answer}")
+
+    print("\n变长泛化测试（训练分布外）:")
+    last_category = None
+    for category, expr, answer in VARIED_LENGTH_CASES:
+        if category != last_category:
+            print(f"  [{category}]")
+            last_category = category
+        # 答案长度可能超过默认 5，留一点 EOS 余量
+        pred = predict(model, expr, device, max_len=max(len(answer) + 2, 6))
+        print(f"  {expr}{answer}, model={pred}, ok={pred == answer}")
 
 
 def parse_args() -> argparse.Namespace:
